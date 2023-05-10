@@ -84,12 +84,13 @@ bget(uint dev, uint blockno)
       b->blockno = blockno;
       b->flags = 0;
       b->refcnt = 1;
-      release(&bcache.lock);
-      acquiresleep(&b->lock);
+      release(&bcache.lock);  // bcache.lock 保护的是所有 buffer 的元数据
+      // 这个时候可以释放 bcache 的锁了，因为 refcnt 已经>=1，能保护 buf 不被用于缓存别的 block 了
+      acquiresleep(&b->lock); // buffer.lock 保护的是 buffer 的数据
       return b;
     }
   }
-  panic("bget: no buffers");
+  panic("bget: no buffers");  // 就是说这里会出现 buffer 不够用的情况，这时候 panic
 }
 
 // Return a locked buf with the contents of the indicated block.
@@ -132,7 +133,7 @@ brelse(struct buf *b)
     b->next->prev = b->prev;
     b->prev->next = b->next;
     b->next = bcache.head.next;
-    b->prev = &bcache.head;
+    b->prev = &bcache.head;   // bcache.head 本身是不使用的，只是为了找 buffer 项方便
     bcache.head.next->prev = b;
     bcache.head.next = b;
   }

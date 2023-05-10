@@ -14,15 +14,15 @@ struct devsw devsw[NDEV];
 struct {
   struct spinlock lock;
   struct file file[NFILE];
-} ftable;
+} ftable;   // 打开文件表，用一个自旋锁保护
 
 void
-fileinit(void)
+fileinit(void)  // 打开文件表的初始化：初始化打开文件表的锁
 {
   initlock(&ftable.lock, "ftable");
 }
 
-// Allocate a file structure.
+// 分配一个file结构：从打开文件表中找到一个空闲的文件表项，返回指向该表项的指针；失败返回 0
 struct file*
 filealloc(void)
 {
@@ -40,7 +40,7 @@ filealloc(void)
   return 0;
 }
 
-// Increment ref count for file f.
+// 为文件f增加引用计数
 struct file*
 filedup(struct file *f)
 {
@@ -53,6 +53,7 @@ filedup(struct file *f)
 }
 
 // Close file f.  (Decrement ref count, close when reaches 0.)
+// 关闭文件f: 调用iput(ff.ip)，降低inode引用计数，降到0回收inode缓存；如果降到0的同时inode的链接数也降到0，释放inode磁盘块及其对应的内容块
 void
 fileclose(struct file *f)
 {
@@ -65,10 +66,10 @@ fileclose(struct file *f)
     release(&ftable.lock);
     return;
   }
-  ff = *f;
-  f->ref = 0;
-  f->type = FD_NONE;
-  release(&ftable.lock);
+  ff = *f;  // 还没有 return，证明这时候 f->ref == 0，所以可以把 f 复制出来，然后把 f->ref 和 f->type 改了
+  f->ref = 0;   // f 是指针，ff 是复制出来的一个 struct file 数据结构
+  f->type = FD_NONE;  // 改了 f->type 和 f->ref，ff 并没有被改
+  release(&ftable.lock);  // 为了持有 ftable 锁的时间最短，改完 f->ref 和 f->type 就释放 ftable 的锁
 
   if(ff.type == FD_PIPE)
     pipeclose(ff.pipe, ff.writable);
@@ -84,7 +85,7 @@ int
 filestat(struct file *f, struct stat *st)
 {
   if(f->type == FD_INODE){
-    ilock(f->ip);
+    ilock(f->ip);     // ip indicates inode pointer
     stati(f->ip, st);
     iunlock(f->ip);
     return 0;
@@ -92,7 +93,7 @@ filestat(struct file *f, struct stat *st)
   return -1;
 }
 
-// Read from file f.
+// Read from file f. 把文件 *f 读到 addr 中，从 f_off 出开始读，n 是读取的字节数
 int
 fileread(struct file *f, char *addr, int n)
 {
@@ -104,7 +105,7 @@ fileread(struct file *f, char *addr, int n)
     return piperead(f->pipe, addr, n);
   if(f->type == FD_INODE){
     ilock(f->ip);
-    if((r = readi(f->ip, addr, f->off, n)) > 0)
+    if((r = readi(f->ip, addr, f->off, n)) > 0) // 读 iNode 时要求 caller 持有 iNode 锁
       f->off += r;
     iunlock(f->ip);
     return r;

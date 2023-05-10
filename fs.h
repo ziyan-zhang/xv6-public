@@ -22,8 +22,8 @@ struct superblock {
 };
 
 #define NDIRECT 12
-#define NINDIRECT (BSIZE / sizeof(uint))
-#define MAXFILE (NDIRECT + NINDIRECT)
+#define NINDIRECT (BSIZE / sizeof(uint))  // block编号是uint类型，所以一个block可以存放BSIZE/sizeof(uint)个block编号
+#define MAXFILE (NDIRECT + NINDIRECT) // NINDIRECT个block编号，加上NDIRECT个直接存放的block编号，就是一个文件最多可以存放的block编号个数
 
 // On-disk inode structure
 struct dinode {

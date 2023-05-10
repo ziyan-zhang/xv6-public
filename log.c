@@ -38,7 +38,8 @@ struct logheader {
 
 struct log {
   struct spinlock lock;
-  int start;
+  int start;      // start, size 应该是为了指示日志在磁盘上的位置，这个是源位置
+                  // log.lh.block[tail] 是目标位置
   int size;
   int outstanding; // how many FS sys calls are executing.
   int committing;  // in commit(), please wait.
@@ -60,7 +61,7 @@ initlog(int dev)
   initlock(&log.lock, "log");
   readsb(dev, &sb);
   log.start = sb.logstart;
-  log.size = sb.nlog;
+  log.size = sb.nlog;   // 感觉 logheader 已经确定了 log 的标准大小
   log.dev = dev;
   recover_from_log();
 }
@@ -82,6 +83,7 @@ install_trans(void)
 }
 
 // Read the log header from disk into the in-memory log header
+// log 是个全局变量，这里就覆盖了这个全局变量
 static void
 read_head(void)
 {
@@ -96,8 +98,8 @@ read_head(void)
 }
 
 // Write in-memory log header to disk.
-// This is the true point at which the
-// current transaction commits.
+// This is the true point at which the current transaction commits.
+// 这里许是没有 commit block，log_head 从 in-mem log 通过 buf 写到盘上就 commit 了
 static void
 write_head(void)
 {
@@ -118,14 +120,14 @@ recover_from_log(void)
   read_head();
   install_trans(); // if committed, copy from log to disk
   log.lh.n = 0;
-  write_head(); // clear the log
+  write_head(); // clear the log。log_head 从 in-mem buf 写到盘上
 }
 
 // called at the start of each FS system call.
 void
-begin_op(void)
+begin_op(void)  // begin_lock 确实只是做了 log.outstading++的操作
 {
-  acquire(&log.lock);
+  acquire(&log.lock);   // 这里并发安全通过自旋锁来获得，注意是并发安全，而没什么并发效率的优化
   while(1){
     if(log.committing){
       sleep(&log, &log.lock);
@@ -198,9 +200,11 @@ commit()
     install_trans(); // Now install writes to home locations
     log.lh.n = 0;
     write_head();    // Erase the transaction from the log
+    // todo: 这里的 write_head() 为什么要写两次？
   }
 }
 
+// 这个log_write算是核心代码了:代替bwrite把buffer记录到log（全局的）中，可absorb，通过B_DIRTY防止了回收
 // Caller has modified b->data and is done with the buffer.
 // Record the block number and pin in the cache with B_DIRTY.
 // commit()/write_log() will do the disk write.

@@ -22,7 +22,7 @@ struct inode {
   short minor;
   short nlink;
   uint size;
-  uint addrs[NDIRECT+1];
+  uint addrs[NDIRECT+1];  // NDIRECT个直接块，加上一个间接块，是所有用于存放地址的块的个数
 };
 
 // table mapping major device number to
